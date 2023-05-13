@@ -43,9 +43,9 @@
         <div v-for="(item, index) in videoInfo.page" :key="index" :class="['video-item', selected.includes(item.page) ? 'active' : '']" @click="toggle(item.page)">
           <a-tooltip>
             <template #title>
-              {{ item.title }}
+              {{ `[P${index+ 1}]${item.title}` }}
             </template>
-            <span class="ellipsis-1">{{ item.title }}</span>
+            <span class="ellipsis-1">{{ `[P${index+ 1}]${item.title}` }}</span>
           </a-tooltip>
         </div>
       </div>
@@ -82,14 +82,13 @@ const handleDownload = async () => {
   confirmLoading.value = true
   // 获取当前选中视频的下载数据
   const list = await getDownloadList(toRaw(videoInfo.value), toRaw(selected.value), quality.value)
-  console.log(list)
-  const taskList = addDownload(list)
+  const taskList = await addDownload(list)
   store.taskStore().setTask(taskList)
   let count = 0
   let selectedTask = ''
   for (const key in taskList) {
     const task = taskList[key]
-    if (task.status === 1) {
+    if (task.status === 1 && count < store.settingStore().downloadingMaxSize) {
       window.electron.downloadVideo(task)
       count += 1
       if (!selectedTask) selectedTask = task.id

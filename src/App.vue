@@ -1,16 +1,10 @@
 <template>
   <a-config-provider :locale="zhCN">
-    <TitleBar
-      title="BilibiliVideoDownload"
-      :isBackground="false"
-      :isMinimizable="true"
-      :isMaximizable="false"
-      @onClose="onClose"
-      @onMinimize="onMinimize"
-    />
+    <TitleBar title="BilibiliVideoDownload" :isBackground="false" :isMinimizable="true" :isMaximizable="false"
+      @onClose="onClose" @onMinimize="onMinimize" />
     <TabBar />
     <CheckUpdate ref="checkUpdate" />
-    <router-view/>
+    <router-view />
   </a-config-provider>
 </template>
 
@@ -57,7 +51,8 @@ onMounted(() => {
   })
   // 监听下载进度
   window.electron.on('download-video-status', async ({ id, status, progress }: { id: string, status: number, progress: number }) => {
-    const task = store.taskStore(pinia).getTask(id) ? JSON.parse(JSON.stringify(store.taskStore(pinia).getTask(id))) : null
+    const taskInStore = store.taskStore(pinia).getTask(id)
+    const task = taskInStore ? JSON.parse(JSON.stringify(taskInStore)) : null
     // 成功和失败 更新 pinia electron-store，减少正在下载数；检查taskList是否有等待中任务，有则下载
     if (task && (status === 0 || status === 5)) {
       window.log.info(`${id} ${status}`)
@@ -73,7 +68,7 @@ onMounted(() => {
       taskList.forEach((value) => {
         if (value.status === 4) allowDownload.push(JSON.parse(JSON.stringify(value)))
       })
-      allowDownload = addDownload(allowDownload)
+      allowDownload = await addDownload(allowDownload)
       let count = 0
       for (const key in allowDownload) {
         const item = allowDownload[key]
@@ -99,5 +94,4 @@ onMounted(() => {
 })
 </script>
 
-<style lang="less" scoped>
-</style>
+<style lang="less" scoped></style>

@@ -65,7 +65,7 @@ ipcMain.handle('open-dir-dialog', () => {
   if (filePaths) {
     return Promise.resolve(filePaths[0])
   } else {
-    return Promise.reject('not select')
+    return Promise.reject(new Error('not select'))
   }
 })
 
@@ -137,6 +137,11 @@ ipcMain.handle('show-context-menu', (event, type: string) => {
           label: '重新下载',
           type: 'normal',
           click: () => resolve('reload')
+        },
+        {
+          label: '重试',
+          type: 'normal',
+          click: () => resolve('retry')
         },
         {
           label: '打开文件夹',
@@ -255,8 +260,8 @@ ipcMain.on('save-danmuku-file', (event, content, path) => {
 async function createWindow () {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 900,
     frame: false,
     resizable: false,
     maximizable: false,
@@ -328,7 +333,7 @@ function handleCloseApp () {
     buttons: ['取消', '关闭']
   })
     .then(res => {
-      console.log(res);
+      console.log(res)
       if (count) store.set('taskList', taskList)
       if (res.response === 1) win.destroy()
     })

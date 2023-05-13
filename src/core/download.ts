@@ -22,9 +22,6 @@ function handleDeleteFile (setting: SettingData, videoInfo: TaskData) {
 }
 
 export default async (videoInfo: TaskData, event: IpcMainEvent, setting: SettingData) => {
-  // throttle start
-  let videoLastTime = 0
-  let videoTimer: any = null
   let audioLastTime = 0
   let audioTimer: any = null
   // throttle end
@@ -42,7 +39,7 @@ export default async (videoInfo: TaskData, event: IpcMainEvent, setting: Setting
   }
   // 去掉扩展名的文件路径
   const fileName = videoInfo.filePathList[0].substring(0, videoInfo.filePathList[0].length - 4)
-  if (setting.isFolder) {
+  if (!fs.existsSync(videoInfo.fileDir)) {
     // 创建文件夹
     try {
       fs.mkdirSync(`${videoInfo.fileDir}`)
@@ -63,80 +60,78 @@ export default async (videoInfo: TaskData, event: IpcMainEvent, setting: Setting
   }
   // 下载字幕
   if (setting.isSubtitle) {
-    downloadSubtitle(fileName, videoInfo.subtitle)
+    downloadSubtitle(fileName, videoInfo.subtitle || [])
   }
   // 下载弹幕
   if (setting.isDanmaku) {
     event.reply('download-danmuku', videoInfo.cid, videoInfo.title, `${fileName}.ass`)
   }
-  // 下载视频
-  await pipeline(
-    got.stream(videoInfo.downloadUrl.video, downloadConfig)
-      .on('downloadProgress', (progress: any) => {
-        const nowTime = +new Date()
-        clearTimeout(videoTimer)
-        if (!videoLastTime || nowTime - videoLastTime > 1000) {
-          event.reply('download-video-status', {
-            id: videoInfo.id,
-            status: 1,
-            progress: Math.round(progress.percent * 100 * 0.75)
-          })
-          videoLastTime = nowTime
-        } else {
-          videoTimer = setTimeout(() => {
+  try {
+    // 下载视频
+    await pipeline(
+      got.stream(videoInfo.downloadUrl.video, downloadConfig)
+        .on('downloadProgress', (progress: any) => {
+          if (progress.percent * 100 % 10 === 0) {
             event.reply('download-video-status', {
               id: videoInfo.id,
               status: 1,
               progress: Math.round(progress.percent * 100 * 0.75)
             })
-          }, 200)
-        }
-      })
-      .on('error', (error: any) => {
-        log.error(`视频下载失败：${videoInfo.title} ${error.message}`)
-        event.reply('download-video-status', {
-          id: videoInfo.id,
-          status: 5,
-          progress: 100
+          }
         })
-      }),
-    fs.createWriteStream(videoInfo.filePathList[2])
-  )
-  await sleep(500)
-  // 下载音频
-  await pipeline(
-    got.stream(videoInfo.downloadUrl.audio, downloadConfig)
-      .on('downloadProgress', (progress: any) => {
-        const nowTime = +new Date()
-        clearTimeout(audioTimer)
-        if (!audioLastTime || nowTime - audioLastTime > 1000) {
+        .on('error', (error: any) => {
+          log.error(`视频下载失败：${videoInfo.title} ${error.message}`)
           event.reply('download-video-status', {
             id: videoInfo.id,
-            status: 2,
-            progress: Math.round((progress.percent * 100 * 0.22) + 75)
+            status: 5,
+            progress: 100
           })
-          audioLastTime = nowTime
-        } else {
-          audioTimer = setTimeout(() => {
+        }),
+      fs.createWriteStream(videoInfo.filePathList[2])
+    )
+    await sleep(500)
+    // 下载音频
+    await pipeline(
+      got.stream(videoInfo.downloadUrl.audio, downloadConfig)
+        .on('downloadProgress', (progress: any) => {
+          const nowTime = +new Date()
+          clearTimeout(audioTimer)
+          if (!audioLastTime || nowTime - audioLastTime > 1000) {
             event.reply('download-video-status', {
               id: videoInfo.id,
               status: 2,
               progress: Math.round((progress.percent * 100 * 0.22) + 75)
             })
-          }, 200)
-        }
-      })
-      .on('error', (error: any) => {
-        log.error(`音频下载失败：${videoInfo.title} ${error.message}`)
-        event.reply('download-video-status', {
-          id: videoInfo.id,
-          status: 5,
-          progress: 100
+            audioLastTime = nowTime
+          } else {
+            audioTimer = setTimeout(() => {
+              event.reply('download-video-status', {
+                id: videoInfo.id,
+                status: 2,
+                progress: Math.round((progress.percent * 100 * 0.22) + 75)
+              })
+            }, 200)
+          }
         })
-      }),
-    fs.createWriteStream(videoInfo.filePathList[3])
-  )
-  await sleep(500)
+        .on('error', (error: any) => {
+          log.error(`音频下载失败：${videoInfo.title} ${error.message}`)
+          event.reply('download-video-status', {
+            id: videoInfo.id,
+            status: 5,
+            progress: 100
+          })
+        }),
+      fs.createWriteStream(videoInfo.filePathList[3])
+    )
+    await sleep(500)
+  } catch (err: any) {
+    log.error(`音频下载失败：${videoInfo.title} ${err.message}`)
+    event.reply('download-video-status', {
+      id: videoInfo.id,
+      status: 5,
+      progress: 100
+    })
+  }
   // 合成视频
   if (setting.isMerge) {
     event.reply('download-video-status', {

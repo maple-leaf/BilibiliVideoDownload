@@ -1,3 +1,4 @@
+/* eslint-disable space-before-function-paren */
 import { defineStore } from 'pinia'
 import { TaskList, TaskData } from '../type'
 import { taskData } from '../assets/data/default'
@@ -12,7 +13,7 @@ export const taskStore = defineStore('task', {
     }
   },
   getters: {
-    rightTask (state) {
+    rightTask(state) {
       const task = state.taskList.get(state.rightTaskId)
       if (state.rightTaskId && task) {
         return task
@@ -20,42 +21,53 @@ export const taskStore = defineStore('task', {
         return taskData
       }
     },
-    taskListArray (state) {
+    taskListArray(state) {
       return Array.from(state.taskList)
+    },
+    failedTaskList(state) {
+      const taskList: TaskData[] = []
+      state.taskList.forEach(task => {
+        if (task.status === 5) {
+          taskList.push(task)
+        }
+      })
+      return taskList
     }
   },
   actions: {
-    setTaskList (taskList: TaskList) {
+    setTaskList(taskList: TaskList) {
+      console.log('setTaskList ===', JSON.parse(JSON.stringify(taskList)))
       this.taskList = taskList
     },
-    getTask (id: string) {
+    getTask(id: string) {
       return this.taskList.get(id)
     },
-    setTask (taskList: TaskData[]) {
+    setTask(taskList: TaskData[]) {
       taskList.forEach(task => {
+        console.log('setTask ===', task.id, task)
         this.taskList.set(task.id, task)
         // 修改electron-store
         const path = `taskList.${task.id}`
         window.electron.setStore(path, task)
       })
     },
-    setTaskEasy (taskList: TaskData[]) {
+    setTaskEasy(taskList: TaskData[]) {
       taskList.forEach(task => {
+        console.log('===22', task.id, task.progress)
         this.taskList.set(task.id, task)
       })
     },
-    deleteTask (list: string[]) {
+    deleteTask(list: string[]) {
       list.forEach(id => {
         this.taskList.delete(id)
         // 修改electron-store
-        const path = `taskList.${id}`
-        window.electron.deleteStore(path)
+        window.electron.deleteStore(`taskList.${id}`)
       })
     },
-    has (id: string) {
+    has(id: string) {
       return this.taskList.has(id)
     },
-    setRightTaskId (id: string) {
+    setRightTaskId(id: string) {
       this.rightTaskId = id
     }
   }

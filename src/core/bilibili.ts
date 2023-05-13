@@ -3,7 +3,14 @@ import { formatSeconed, filterTitle, sleep } from '../utils'
 import { qualityMap } from '../assets/data/quality'
 import { customAlphabet } from 'nanoid'
 import alphabet from '../assets/data/alphabet'
-import { VideoData, Page, DownloadUrl, Subtitle, TaskData, Audio } from '../type'
+import {
+  VideoData,
+  Page,
+  DownloadUrl,
+  Subtitle,
+  TaskData,
+  Audio
+} from '../type'
 import { store, pinia } from '../store'
 
 // 自定义uuid
@@ -13,35 +20,53 @@ const nanoid = customAlphabet(alphabet, 16)
  * @params videoInfo: 当前下载的视频详情 selected：所选的分p quality：所选的清晰度
  * @returns 返回下载数据 Array
  */
-const getDownloadList = async (videoInfo: VideoData, selected: number[], quality: number) => {
+const getDownloadList = async (
+  videoInfo: VideoData,
+  selected: number[],
+  quality: number
+) => {
   const downloadList: VideoData[] = []
+  console.log('=== getDownloadList ===', videoInfo)
   for (let index = 0; index < selected.length; index++) {
+    const skipFectchServer =
+      index > store.settingStore(pinia).downloadingMaxSize
+    console.log('skipFectchServer', skipFectchServer, index)
     const currentPage = selected[index]
     // 请求选中清晰度视频下载地址
-    const currentPageData = videoInfo.page.find(item => item.page === currentPage)
+    const currentPageData = videoInfo.page.find(
+      (item) => item.page === currentPage
+    )
     if (!currentPageData) throw new Error('获取视频下载地址错误')
     const currentCid = currentPageData.cid
     const currentBvid = currentPageData.bvid
     // 获取下载地址
     // 判断当前数据是否有下载地址列表，有则直接用，没有再去请求
     const downloadUrl: DownloadUrl = { video: '', audio: '' }
-    const videoUrl = videoInfo.video.find(item => item.id === quality && item.cid === currentCid)
-    const audioUrl = getHighQualityAudio(videoInfo.audio)
+    const videoUrl = videoInfo.video?.find(
+      (item) => item.id === quality && item.cid === currentCid
+    )
+    const audioUrl = videoInfo.audio && getHighQualityAudio(videoInfo.audio)
     if (videoUrl && audioUrl) {
       downloadUrl.video = videoUrl.url
       downloadUrl.audio = audioUrl.url
-    } else {
-      const { video, audio } = await getDownloadUrl(currentCid, currentBvid, quality)
+    } else if (!skipFectchServer) {
+      const { video, audio } = await getDownloadUrl(
+        currentCid,
+        currentBvid,
+        quality
+      )
       downloadUrl.video = video
       downloadUrl.audio = audio
     }
     // 获取字幕地址
-    const subtitle = await getSubtitle(currentCid, currentBvid)
-    const taskId = nanoid()
+    const subtitle = skipFectchServer
+      ? undefined
+      : await getSubtitle(currentCid, currentBvid)
+    const page = videoInfo.page.length === 1 ? 0 : currentPage
     const videoData: VideoData = {
       ...videoInfo,
-      id: taskId,
-      title: currentPageData.title,
+      id: `${videoInfo.title}_${currentPageData.title}_${currentPageData.duration}_${quality}`.replaceAll('.', '__'),
+      title: getEpisodeName(page, currentPageData.title),
       url: currentPageData.url,
       quality: quality,
       duration: currentPageData.duration,
@@ -49,37 +74,68 @@ const getDownloadList = async (videoInfo: VideoData, selected: number[], quality
       cid: currentCid,
       bvid: currentBvid,
       downloadUrl,
-      filePathList: handleFilePathList(selected.length === 1 ? 0 : currentPage, currentPageData.title, videoInfo.up[0].name, currentBvid, taskId),
-      fileDir: handleFileDir(selected.length === 1 ? 0 : currentPage, currentPageData.title, videoInfo.up[0].name, currentBvid, taskId),
+      filePathList: handleFilePathList(
+        videoInfo.title,
+        page,
+        currentPageData.title,
+        videoInfo.up[0].name,
+        currentBvid
+      ),
+      fileDir: handleFileDir(
+        videoInfo.title,
+        selected.length === 1 ? 0 : currentPage,
+        currentPageData.title,
+        videoInfo.up[0].name,
+        currentBvid
+      ),
       subtitle
     }
+    console.log('videoData', videoData)
     downloadList.push(videoData)
-    if (index !== selected.length - 1) {
+    if (index !== selected.length - 1 && !skipFectchServer) {
       await sleep(1000)
     }
   }
   return downloadList
 }
 
-const addDownload = (videoList: VideoData[] | TaskData[]) => {
-  const allowDownloadCount = store.settingStore(pinia).downloadingMaxSize - store.baseStore(pinia).downloadingTaskCount
-  const taskList: TaskData[] = []
+const addDownload = async (videoList: VideoData[] | TaskData[]) => {
+  const allowDownloadCount =
+    store.settingStore(pinia).downloadingMaxSize -
+    store.baseStore(pinia).downloadingTaskCount
+  let taskList: TaskData[] = []
   if (allowDownloadCount >= 0) {
-    videoList.forEach((item, index) => {
-      if (index < allowDownloadCount) {
-        taskList.push({
-          ...item,
-          status: 1,
-          progress: 0
-        })
-      } else {
-        taskList.push({
-          ...item,
-          status: 4,
-          progress: 0
-        })
-      }
-    })
+    taskList = await Promise.all(
+      videoList.map(async (item, index) => {
+        if (index < allowDownloadCount) {
+          if (!item.downloadUrl.video || !item.downloadUrl.audio) {
+            const { video, audio } = await getDownloadUrl(
+              item.cid,
+              item.bvid,
+              item.quality
+            )
+            item.downloadUrl = {
+              video,
+              audio
+            }
+          }
+          if (!item.subtitle) {
+            item.subtitle = await getSubtitle(item.cid, item.bvid)
+          }
+          return {
+            ...item,
+            status: 1,
+            progress: 0
+          }
+        } else {
+          return {
+            ...item,
+            status: 4,
+            progress: 0
+          }
+        }
+      })
+    )
   }
   return taskList
 }
@@ -101,13 +157,16 @@ const saveResponseCookies = (cookies: string[]) => {
  * @returns 0: 游客，未登录 1：普通用户 2：大会员
  */
 const checkLogin = async (SESSDATA: string) => {
-  const { body } = await window.electron.got('https://api.bilibili.com/x/web-interface/nav', {
-    headers: {
-      'User-Agent': `${UA}`,
-      cookie: `SESSDATA=${SESSDATA}`
-    },
-    responseType: 'json'
-  })
+  const { body } = await window.electron.got(
+    'https://api.bilibili.com/x/web-interface/nav',
+    {
+      headers: {
+        'User-Agent': `${UA}`,
+        cookie: `SESSDATA=${SESSDATA}`
+      },
+      responseType: 'json'
+    }
+  )
   if (body.data.isLogin && !body.data.vipStatus) {
     return 1
   } else if (body.data.isLogin && body.data.vipStatus) {
@@ -148,7 +207,10 @@ const checkUrlRedirect = async (videoUrl: string) => {
       }
     }
   }
-  const { body, redirectUrls } = await window.electron.got(params.videoUrl, params.config)
+  const { body, redirectUrls } = await window.electron.got(
+    params.videoUrl,
+    params.config
+  )
   const url = redirectUrls[0] ? redirectUrls[0] : videoUrl
   return {
     body,
@@ -171,13 +233,17 @@ const parseHtml = (html: string, type: string, url: string) => {
 
 const parseBV = async (html: string, url: string) => {
   try {
-    const videoInfo = html.match(/\<\/script\>\<script\>window\.\_\_INITIAL\_STATE\_\_\=([\s\S]*?)\;\(function\(\)/)
+    const videoInfo = html.match(
+      /\<\/script\>\<script\>window\.\_\_INITIAL\_STATE\_\_\=([\s\S]*?)\;\(function\(\)/
+    )
     if (!videoInfo) throw new Error('parse bv error')
     const { videoData } = JSON.parse(videoInfo[1])
     // 获取视频下载地址
     let acceptQuality = null
     try {
-      let downLoadData: any = html.match(/\<script\>window\.\_\_playinfo\_\_\=([\s\S]*?)\<\/script\>\<script\>window\.\_\_INITIAL\_STATE\_\_\=/)
+      let downLoadData: any = html.match(
+        /\<script\>window\.\_\_playinfo\_\_\=([\s\S]*?)\<\/script\>\<script\>window\.\_\_INITIAL\_STATE\_\_\=/
+      )
       if (!downLoadData) throw new Error('parse bv error')
       downLoadData = JSON.parse(downLoadData[1])
       acceptQuality = {
@@ -201,12 +267,32 @@ const parseBV = async (html: string, url: string) => {
       danmaku: videoData.stat.danmaku,
       reply: videoData.stat.reply,
       duration: formatSeconed(videoData.duration),
-      up: videoData.hasOwnProperty('staff') ? videoData.staff.map((item: any) => ({ name: item.name, mid: item.mid })) : [{ name: videoData.owner.name, mid: videoData.owner.mid }],
-      qualityOptions: acceptQuality.accept_quality.map((item: any) => ({ label: qualityMap[item], value: item })),
+      up: videoData.hasOwnProperty('staff')
+        ? videoData.staff.map((item: any) => ({
+          name: item.name,
+          mid: item.mid
+        }))
+        : [{ name: videoData.owner.name, mid: videoData.owner.mid }],
+      qualityOptions: acceptQuality.accept_quality.map((item: any) => ({
+        label: qualityMap[item],
+        value: item
+      })),
       page: parseBVPageData(videoData, url),
       subtitle: [],
-      video: acceptQuality.video ? acceptQuality.video.map((item: any) => ({ id: item.id, cid: videoData.cid, url: item.baseUrl })) : [],
-      audio: acceptQuality.audio ? acceptQuality.audio.map((item: any) => ({ id: item.id, cid: videoData.cid, url: item.baseUrl })) : [],
+      video: acceptQuality.video
+        ? acceptQuality.video.map((item: any) => ({
+          id: item.id,
+          cid: videoData.cid,
+          url: item.baseUrl
+        }))
+        : [],
+      audio: acceptQuality.audio
+        ? acceptQuality.audio.map((item: any) => ({
+          id: item.id,
+          cid: videoData.cid,
+          url: item.baseUrl
+        }))
+        : [],
       filePathList: [],
       fileDir: '',
       size: -1,
@@ -222,13 +308,17 @@ const parseBV = async (html: string, url: string) => {
 
 const parseEP = async (html: string, url: string) => {
   try {
-    const videoInfo = html.match(/\<script\>window\.\_\_INITIAL\_STATE\_\_\=([\s\S]*?)\;\(function\(\)\{var s\;/)
+    const videoInfo = html.match(
+      /\<script\>window\.\_\_INITIAL\_STATE\_\_\=([\s\S]*?)\;\(function\(\)\{var s\;/
+    )
     if (!videoInfo) throw new Error('parse ep error')
     const { h1Title, mediaInfo, epInfo, epList } = JSON.parse(videoInfo[1])
     // 获取视频下载地址
     let acceptQuality = null
     try {
-      let downLoadData: any = html.match(/\<script\>window\.\_\_playinfo\_\_\=([\s\S]*?)\<\/script\>\<script\>window\.\_\_INITIAL\_STATE\_\_\=/)
+      let downLoadData: any = html.match(
+        /\<script\>window\.\_\_playinfo\_\_\=([\s\S]*?)\<\/script\>\<script\>window\.\_\_INITIAL\_STATE\_\_\=/
+      )
       if (!downLoadData) throw new Error('parse ep error')
       downLoadData = JSON.parse(downLoadData[1])
       acceptQuality = {
@@ -253,11 +343,26 @@ const parseEP = async (html: string, url: string) => {
       reply: mediaInfo.stat.reply,
       duration: formatSeconed(epInfo.duration / 1000),
       up: [{ name: mediaInfo.upInfo.name, mid: mediaInfo.upInfo.mid }],
-      qualityOptions: acceptQuality.accept_quality.map((item: any) => ({ label: qualityMap[item], value: item })),
+      qualityOptions: acceptQuality.accept_quality.map((item: any) => ({
+        label: qualityMap[item],
+        value: item
+      })),
       page: parseEPPageData(epList),
       subtitle: [],
-      video: acceptQuality.video ? acceptQuality.video.map((item: any) => ({ id: item.id, cid: epInfo.cid, url: item.baseUrl })) : [],
-      audio: acceptQuality.audio ? acceptQuality.audio.map((item: any) => ({ id: item.id, cid: epInfo.cid, url: item.baseUrl })) : [],
+      video: acceptQuality.video
+        ? acceptQuality.video.map((item: any) => ({
+          id: item.id,
+          cid: epInfo.cid,
+          url: item.baseUrl
+        }))
+        : [],
+      audio: acceptQuality.audio
+        ? acceptQuality.audio.map((item: any) => ({
+          id: item.id,
+          cid: epInfo.cid,
+          url: item.baseUrl
+        }))
+        : [],
       filePathList: [],
       fileDir: '',
       size: -1,
@@ -273,7 +378,9 @@ const parseEP = async (html: string, url: string) => {
 
 const parseSS = async (html: string) => {
   try {
-    const videoInfo = html.match(/\<script\>window\.\_\_INITIAL\_STATE\_\_\=([\s\S]*?)\;\(function\(\)\{var s\;/)
+    const videoInfo = html.match(
+      /\<script\>window\.\_\_INITIAL\_STATE\_\_\=([\s\S]*?)\;\(function\(\)\{var s\;/
+    )
     if (!videoInfo) throw new Error('parse ss error')
     const { mediaInfo } = JSON.parse(videoInfo[1])
     const params = {
@@ -303,7 +410,15 @@ const getAcceptQuality = async (cid: string, bvid: string) => {
     },
     responseType: 'json'
   }
-  const { body: { data: { accept_quality, dash: { video, audio } } }, headers: { 'set-cookie': responseCookies } } = await window.electron.got(
+  const {
+    body: {
+      data: {
+        accept_quality,
+        dash: { video, audio }
+      }
+    },
+    headers: { 'set-cookie': responseCookies }
+  } = await window.electron.got(
     `https://api.bilibili.com/x/player/playurl?cid=${cid}&bvid=${bvid}&qn=127&type=&otype=json&fourk=1&fnver=0&fnval=80&session=68191c1dc3c75042c6f35fba895d65b0`,
     config
   )
@@ -328,14 +443,21 @@ const getDownloadUrl = async (cid: number, bvid: string, quality: number) => {
     },
     responseType: 'json'
   }
-  const { body: { data: { dash } }, headers: { 'set-cookie': responseCookies } } = await window.electron.got(
+  const {
+    body: {
+      data: { dash }
+    },
+    headers: { 'set-cookie': responseCookies }
+  } = await window.electron.got(
     `https://api.bilibili.com/x/player/playurl?cid=${cid}&bvid=${bvid}&qn=${quality}&type=&otype=json&fourk=1&fnver=0&fnval=80&session=68191c1dc3c75042c6f35fba895d65b0`,
     config
   )
   // 保存返回的cookies
   saveResponseCookies(responseCookies)
   return {
-    video: dash.video.find((item: any) => item.id === quality) ? dash.video.find((item: any) => item.id === quality).baseUrl : dash.video[0].baseUrl,
+    video: dash.video.find((item: any) => item.id === quality)
+      ? dash.video.find((item: any) => item.id === quality).baseUrl
+      : dash.video[0].baseUrl,
     audio: getHighQualityAudio(dash.audio).baseUrl
   }
 }
@@ -351,15 +473,33 @@ const getSubtitle = async (cid: number, bvid: string) => {
     },
     responseType: 'json'
   }
-  const { body: { data: { subtitle } } } = await window.electron.got(`https://api.bilibili.com/x/player/v2?cid=${cid}&bvid=${bvid}`, config)
-  const subtitleList: Subtitle[] = subtitle.subtitles ? subtitle.subtitles.map((item: any) => ({ title: item.lan_doc, url: item.subtitle_url })) : []
+  const {
+    body: {
+      data: { subtitle }
+    }
+  } = await window.electron.got(
+    `https://api.bilibili.com/x/player/v2?cid=${cid}&bvid=${bvid}`,
+    config
+  )
+  const subtitleList: Subtitle[] = subtitle.subtitles
+    ? subtitle.subtitles.map((item: any) => ({
+      title: item.lan_doc,
+      url: item.subtitle_url
+    }))
+    : []
   return subtitleList
 }
 
 // 处理filePathList
-const handleFilePathList = (page: number, title: string, up: string, bvid: string, id: string): string[] => {
-  const downloadPath = store.settingStore().downloadPath
-  const name = `${!page ? '' : `[P${page}]`}${filterTitle(`${title}-${up}-${bvid}-${id}`)}`
+const handleFilePathList = (
+  prefixPath: string,
+  page: number,
+  title: string,
+  up: string,
+  bvid: string
+): string[] => {
+  const downloadPath = `${store.settingStore().downloadPath}/${prefixPath}`
+  const name = `${getEpisodeName(page, title)}`
   const isFolder = store.settingStore().isFolder
   return [
     `${downloadPath}/${isFolder ? `${name}/` : ''}${name}.mp4`,
@@ -371,16 +511,29 @@ const handleFilePathList = (page: number, title: string, up: string, bvid: strin
 }
 
 // 处理fileDir
-const handleFileDir = (page: number, title: string, up: string, bvid: string, id: string): string => {
-  const downloadPath = store.settingStore().downloadPath
-  const name = `${!page ? '' : `[P${page}]`}${filterTitle(`${title}-${up}-${bvid}-${id}`)}`
+const handleFileDir = (
+  prefixPath: string,
+  page: number,
+  title: string,
+  up: string,
+  bvid: string
+): string => {
+  const downloadPath = `${store.settingStore().downloadPath}/${prefixPath}`
+  const name = `${!page ? '' : `[P${page}]`}${filterTitle(
+    `${title}-${up}-${bvid}`
+  )}`
   const isFolder = store.settingStore().isFolder
   return `${downloadPath}${isFolder ? `/${name}/` : ''}`
 }
 
 // 处理bv多p逻辑
-const parseBVPageData = ({ bvid, title, pages }: { bvid: string, title: string, pages: any[] }, url: string): Page[] => {
+const parseBVPageData = (
+  { bvid, title, pages }: { bvid: string; title: string; pages: any[] },
+  url: string
+): Page[] => {
   const len = pages.length
+  const link = new URL(url)
+  link.searchParams.delete('p')
   if (len === 1) {
     return [
       {
@@ -393,13 +546,13 @@ const parseBVPageData = ({ bvid, title, pages }: { bvid: string, title: string, 
       }
     ]
   } else {
-    return pages.map(item => ({
+    return pages.map((item) => ({
       title: item.part,
       page: item.page,
       duration: formatSeconed(item.duration),
       cid: item.cid,
       bvid: bvid,
-      url: `${url}?p=${item.page}`
+      url: `${link.toString()}?p=${item.page}`
     }))
   }
 }
@@ -419,6 +572,17 @@ const parseEPPageData = (epList: any[]): Page[] => {
 // 获取码率最高的audio
 const getHighQualityAudio = (audioArray: any[]) => {
   return audioArray.sort((a, b) => b.id - a.id)[0]
+}
+
+function getEpisodeName (page: number, title: string, up?: string, bvid?: string) {
+  if (up && bvid) {
+    return `${!page ? '' : `[P${page}]`}${filterTitle(
+    `${title}-${up}-${bvid}`
+  )}`
+  }
+  return `${!page ? '' : `[P${page}]`}${filterTitle(
+    title
+  )}`
 }
 
 export {
