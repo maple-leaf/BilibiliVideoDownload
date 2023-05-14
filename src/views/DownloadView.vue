@@ -1,6 +1,6 @@
 <template>
   <div :class="['container fr', !taskList || !taskList.size ? 'ac jc' : 'bg-fff']">
-    <a-empty v-if="!taskList || !taskList.size || (!showSuccess && failedTaskList.length === 0)" :image="require('../assets/images/no-data.png')">
+    <a-empty v-if="!taskList || !taskList.size" :image="require('../assets/images/no-data.png')">
       <template #description>
         <span class="text-active" style="font-weight: bold">暂无数据</span>
       </template>
