@@ -21,6 +21,7 @@ import { checkLogin, addDownload } from './core/bilibili'
 import { downloadDanmaku } from './core/danmaku'
 import { SettingData, TaskData, TaskList } from './type'
 import { sleep } from './utils'
+import { message } from 'ant-design-vue'
 
 dayjs.locale('zh-cn')
 const zhCN = ref(zh_CN)
@@ -46,11 +47,12 @@ onMounted(() => {
       taskMap.set(task.id, task)
     }
     store.taskStore(pinia).setTaskList(taskMap)
-    const taskId = store.taskStore(pinia).taskListArray[0] ? store.taskStore(pinia).taskListArray[0][0] : ''
+    const firstUnfinishedTask = store.taskStore(pinia).taskListArray.filter(([, item]) => item.status !== 0)[0]
+    const taskId = firstUnfinishedTask?.[0] || ''
     if (taskId) store.taskStore(pinia).setRightTaskId(taskId)
   })
   // 监听下载进度
-  window.electron.on('download-video-status', async ({ id, status, progress }: { id: string, status: number, progress: number }) => {
+  window.electron.on('download-video-status', async ({ id, status, progress, reason }: { id: string, status: number, progress: number, reason?: string }) => {
     const taskInStore = store.taskStore(pinia).getTask(id)
     const task = taskInStore ? JSON.parse(JSON.stringify(taskInStore)) : null
     // 成功和失败 更新 pinia electron-store，减少正在下载数；检查taskList是否有等待中任务，有则下载
@@ -79,9 +81,10 @@ onMounted(() => {
         await sleep(300)
       }
       store.baseStore(pinia).addDownloadingTaskCount(count)
-    }
-    // 视频下载中 音频下载中 合成中 只更新pinia
-    if (task && (status === 1 || status === 2 || status === 3)) {
+      if (status === 5 && reason) {
+        message.error(reason)
+      }
+    } else if (task && (status === 1 || status === 2 || status === 3)) { // 视频下载中 音频下载中 合成中 只更新pinia
       store.taskStore(pinia).setTaskEasy([{ ...task, status, progress }])
     }
   })

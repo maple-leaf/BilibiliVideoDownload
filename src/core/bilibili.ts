@@ -1,8 +1,6 @@
 import UA from '../assets/data/ua'
 import { formatSeconed, filterTitle, sleep } from '../utils'
 import { qualityMap } from '../assets/data/quality'
-import { customAlphabet } from 'nanoid'
-import alphabet from '../assets/data/alphabet'
 import {
   VideoData,
   Page,
@@ -12,9 +10,7 @@ import {
   Audio
 } from '../type'
 import { store, pinia } from '../store'
-
-// 自定义uuid
-const nanoid = customAlphabet(alphabet, 16)
+import { message } from 'ant-design-vue'
 
 /**
  * @params videoInfo: 当前下载的视频详情 selected：所选的分p quality：所选的清晰度
@@ -77,13 +73,11 @@ const getDownloadList = async (
       filePathList: handleFilePathList(
         videoInfo.title,
         page,
-        currentPageData.title,
-        videoInfo.up[0].name,
-        currentBvid
+        currentPageData.title
       ),
       fileDir: handleFileDir(
         videoInfo.title,
-        selected.length === 1 ? 0 : currentPage,
+        page,
         currentPageData.title,
         videoInfo.up[0].name,
         currentBvid
@@ -107,6 +101,26 @@ const addDownload = async (videoList: VideoData[] | TaskData[]) => {
   if (allowDownloadCount >= 0) {
     taskList = await Promise.all(
       videoList.map(async (item, index) => {
+        const currrentPageData = item.page.find(
+          page => page.bvid === item.bvid && page.cid === item.cid
+        )
+        if (!currrentPageData) {
+          message.error(`获取视频错误, ${item.title}`)
+          return {
+            ...item,
+            status: 5,
+            progress: 0
+          }
+        }
+        const videoInfo = store.taskStore(pinia).videoInfoMap.get(item.bvid)
+        item.fileDir = handleFileDir(
+          videoInfo?.title || '',
+          currrentPageData.page,
+          currrentPageData.title,
+          item.up[0].name,
+          item.bvid
+        )
+        item.filePathList = handleFilePathList(videoInfo?.title || '', currrentPageData.page, currrentPageData.title)
         if (index < allowDownloadCount) {
           if (!item.downloadUrl.video || !item.downloadUrl.audio) {
             const { video, audio } = await getDownloadUrl(
@@ -494,11 +508,9 @@ const getSubtitle = async (cid: number, bvid: string) => {
 const handleFilePathList = (
   prefixPath: string,
   page: number,
-  title: string,
-  up: string,
-  bvid: string
+  title: string
 ): string[] => {
-  const downloadPath = `${store.settingStore().downloadPath}/${prefixPath}`
+  const downloadPath = `${store.settingStore().downloadPath}/${filterTitle(prefixPath)}`
   const name = `${getEpisodeName(page, title)}`
   const isFolder = store.settingStore().isFolder
   return [
@@ -518,7 +530,7 @@ const handleFileDir = (
   up: string,
   bvid: string
 ): string => {
-  const downloadPath = `${store.settingStore().downloadPath}/${prefixPath}`
+  const downloadPath = `${store.settingStore().downloadPath}/${filterTitle(prefixPath)}`
   const name = `${!page ? '' : `[P${page}]`}${filterTitle(
     `${title}-${up}-${bvid}`
   )}`

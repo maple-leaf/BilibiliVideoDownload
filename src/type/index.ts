@@ -92,7 +92,7 @@ export interface VideoData {
   filePathList: string[],
   fileDir: string,
   size: number,
-  downloadUrl: DownloadUrl
+  downloadUrl: DownloadUrl,
 }
 
 export interface TaskData extends VideoData {

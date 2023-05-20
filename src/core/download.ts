@@ -66,6 +66,15 @@ export default async (videoInfo: TaskData, event: IpcMainEvent, setting: Setting
   if (setting.isDanmaku) {
     event.reply('download-danmuku', videoInfo.cid, videoInfo.title, `${fileName}.ass`)
   }
+  if (!videoInfo.downloadUrl.video) {
+    event.reply('download-video-status', {
+      id: videoInfo.id,
+      status: 5,
+      progress: 0,
+      reason: '视频下载链接不存在'
+    })
+    return
+  }
   try {
     // 下载视频
     await pipeline(
@@ -80,11 +89,13 @@ export default async (videoInfo: TaskData, event: IpcMainEvent, setting: Setting
           }
         })
         .on('error', (error: any) => {
-          log.error(`视频下载失败：${videoInfo.title} ${error.message}`)
+          const msg = `视频下载失败：${videoInfo.title} ${error.message}`
+          log.error(msg)
           event.reply('download-video-status', {
             id: videoInfo.id,
             status: 5,
-            progress: 100
+            progress: 100,
+            reason: msg
           })
         }),
       fs.createWriteStream(videoInfo.filePathList[2])
@@ -114,22 +125,26 @@ export default async (videoInfo: TaskData, event: IpcMainEvent, setting: Setting
           }
         })
         .on('error', (error: any) => {
-          log.error(`音频下载失败：${videoInfo.title} ${error.message}`)
+          const msg = `音频下载失败：${videoInfo.title} ${error.message}`
+          log.error(msg)
           event.reply('download-video-status', {
             id: videoInfo.id,
             status: 5,
-            progress: 100
+            progress: 100,
+            reason: msg
           })
         }),
       fs.createWriteStream(videoInfo.filePathList[3])
     )
     await sleep(500)
   } catch (err: any) {
-    log.error(`音频下载失败：${videoInfo.title} ${err.message}`)
+    const msg = `下载失败：${videoInfo.title} ${err.message}`
+    log.error(msg)
     event.reply('download-video-status', {
       id: videoInfo.id,
       status: 5,
-      progress: 100
+      progress: 100,
+      reason: msg
     })
   }
   // 合成视频

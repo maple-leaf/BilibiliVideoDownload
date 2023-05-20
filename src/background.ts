@@ -33,7 +33,13 @@ const template: any = [
     submenu: [
       { label: '全选', role: 'selectAll' },
       { label: '复制', role: 'copy' },
-      { label: '粘贴', role: 'paste' }
+      { label: '粘贴', role: 'paste' },
+      {
+        label: '控制台',
+        click: () => {
+          win.webContents.toggleDevTools()
+        }
+      }
     ]
   }
 ]

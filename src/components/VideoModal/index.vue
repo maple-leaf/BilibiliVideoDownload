@@ -81,6 +81,7 @@ const cancel = () => {
 const handleDownload = async () => {
   confirmLoading.value = true
   // 获取当前选中视频的下载数据
+  store.taskStore().setVideoInfo(videoInfo.value.bvid, videoInfo.value)
   const list = await getDownloadList(toRaw(videoInfo.value), toRaw(selected.value), quality.value)
   const taskList = await addDownload(list)
   store.taskStore().setTask(taskList)

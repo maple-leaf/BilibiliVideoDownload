@@ -1,15 +1,17 @@
 /* eslint-disable space-before-function-paren */
 import { defineStore } from 'pinia'
-import { TaskList, TaskData } from '../type'
+import { TaskList, TaskData, VideoData } from '../type'
 import { taskData } from '../assets/data/default'
 
 export const taskStore = defineStore('task', {
   state: () => {
     const taskList: TaskList = new Map()
+    const videoInfoMap: Map<string, VideoData> = new Map()
     const rightTaskId = ''
     return {
       taskList,
-      rightTaskId
+      rightTaskId,
+      videoInfoMap
     }
   },
   getters: {
@@ -36,15 +38,16 @@ export const taskStore = defineStore('task', {
   },
   actions: {
     setTaskList(taskList: TaskList) {
-      console.log('setTaskList ===', JSON.parse(JSON.stringify(taskList)))
       this.taskList = taskList
+    },
+    setVideoInfo(bvid: string, videoInfo: VideoData) {
+      this.videoInfoMap.set(bvid, videoInfo)
     },
     getTask(id: string) {
       return this.taskList.get(id)
     },
     setTask(taskList: TaskData[]) {
       taskList.forEach(task => {
-        console.log('setTask ===', task.id, task)
         this.taskList.set(task.id, task)
         // 修改electron-store
         const path = `taskList.${task.id}`
@@ -53,7 +56,6 @@ export const taskStore = defineStore('task', {
     },
     setTaskEasy(taskList: TaskData[]) {
       taskList.forEach(task => {
-        console.log('===22', task.id, task.progress)
         this.taskList.set(task.id, task)
       })
     },

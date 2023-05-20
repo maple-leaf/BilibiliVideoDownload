@@ -31,24 +31,26 @@
           <a-switch checked-children="隐藏已完成" un-checked-children="显示已完成" v-model:checked="showSuccess"></a-switch>
           <a-button name="retryAllFailed" @click="retryAllFailed" type="text" class="ml8 pl0 pr0" v-if="failedTaskList.length !== 0">重试所有失败</a-button>
         </div>
-        <div class="image">
-          <a-image :src="rightTask.cover" :alt="rightTask.title" />
-        </div>
-        <div class="pl16 mt8 text-active" @click="openBrowser(rightTask.url)">{{ rightTask.title }}</div>
-        <div class="fr ac pl16 mt8 up-list">
-          UP：<div v-for="(item, index) in rightTask.up" :key="index" class="mr16">
-            <a class="ellipsis-1 up-name" @click="openBrowser(`https://space.bilibili.com/${item.mid}`)">{{ item.name
-            }}</a>
+        <template v-if="selected.length > 0 && (showSuccess || rightTask.status !== 0)">
+          <div class="image">
+            <a-image :src="rightTask.cover" :alt="rightTask.title" />
           </div>
-        </div>
-        <div class="mt8 pl16">创建时间：<span class="text-active">{{ dayjs(rightTask.createdTime).format('YYYY-MM-DD HH:mm:ss')
-        }}</span></div>
-        <div class="mt8 pl16">视频大小：<span class="text-active">{{ formatVideoSize(rightTask.size) }}</span></div>
-        <div class="mt8 pl16">视频时长：<span class="text-active">{{ rightTask.duration }}</span></div>
-        <div class="mt8 pl16">清晰度：<span class="text-active">{{ formatQuality(rightTask.quality) }}</span></div>
-        <div class="mt8 pl16">播放：<span class="text-active">{{ rightTask.view }}</span></div>
-        <div class="mt8 pl16">弹幕：<span class="text-active">{{ rightTask.danmaku }}</span></div>
-        <div class="mt8 pl16">评论：<span class="text-active">{{ rightTask.reply }}</span></div>
+          <div class="pl16 mt8 text-active" @click="openBrowser(rightTask.url)">{{ rightTask.title }}</div>
+          <div class="fr ac pl16 mt8 up-list">
+            UP：<div v-for="(item, index) in rightTask.up" :key="index" class="mr16">
+              <a class="ellipsis-1 up-name" @click="openBrowser(`https://space.bilibili.com/${item.mid}`)">{{ item.name
+              }}</a>
+            </div>
+          </div>
+          <div class="mt8 pl16">创建时间：<span class="text-active">{{ dayjs(rightTask.createdTime).format('YYYY-MM-DD HH:mm:ss')
+          }}</span></div>
+          <div class="mt8 pl16">视频大小：<span class="text-active">{{ formatVideoSize(rightTask.size) }}</span></div>
+          <div class="mt8 pl16">视频时长：<span class="text-active">{{ rightTask.duration }}</span></div>
+          <div class="mt8 pl16">清晰度：<span class="text-active">{{ formatQuality(rightTask.quality) }}</span></div>
+          <div class="mt8 pl16">播放：<span class="text-active">{{ rightTask.view }}</span></div>
+          <div class="mt8 pl16">弹幕：<span class="text-active">{{ rightTask.danmaku }}</span></div>
+          <div class="mt8 pl16">评论：<span class="text-active">{{ rightTask.reply }}</span></div>
+        </template>
       </div>
     </template>
   </div>
@@ -160,38 +162,44 @@ const reloadDownload = async (retry = false) => {
       selectedTask.push(clonedTask)
     }
   })
-  for (const key in selectedTask) {
-    const item = selectedTask[key]
-    if (!item.curPage) continue
-    const videoType = checkUrl(item.url)
-    const { body, url } = await checkUrlRedirect(item.url)
-    const videoInfo = await parseHtml(body, videoType, url)
-    if (videoInfo === -1) continue
+  try {
+    for (const key in selectedTask) {
+      const item = selectedTask[key]
+      if (!item.curPage) continue
+      const videoType = checkUrl(item.url)
+      const { body, url } = await checkUrlRedirect(item.url)
+      const videoInfo = await parseHtml(body, videoType, url)
+      if (videoInfo === -1) continue
 
-    const list = await getDownloadList(videoInfo, [item.curPage], item.quality)
-    if (retry) {
-      console.log(videoInfo, item, list)
-      const taskList = [{
-        ...item,
-        ...list[0],
-        status: 1
-      }]
-      store.taskStore().setTask(taskList)
-      window.electron.downloadVideo(taskList[0])
-      store.baseStore().addDownloadingTaskCount(1)
-    } else {
-    // 当前list只会存在一项
-      const taskList = await addDownload(list)
-      store.taskStore().setTask(taskList)
-      // 可以下载
-      if (taskList[0].status === 1) {
+      store.taskStore().setVideoInfo(videoInfo.bvid, videoInfo)
+      const list = await getDownloadList(videoInfo, [item.curPage], item.quality)
+      if (retry) {
+        console.log(videoInfo, item, list)
+        const taskList = [{
+          ...item,
+          ...list[0],
+          status: 1
+        }]
+        store.taskStore().setTask(taskList)
         window.electron.downloadVideo(taskList[0])
         store.baseStore().addDownloadingTaskCount(1)
+      } else {
+        // 当前list只会存在一项
+        const taskList = await addDownload(list)
+        store.taskStore().setTask(taskList)
+        // 可以下载
+        if (taskList[0].status === 1) {
+          window.electron.downloadVideo(taskList[0])
+          store.baseStore().addDownloadingTaskCount(1)
+        }
       }
+      await sleep(300)
     }
-    await sleep(300)
+  } catch (e) {
+
+  } finally {
+    loading()
   }
-  loading()
 }
 
 const retryDownload = () => {
